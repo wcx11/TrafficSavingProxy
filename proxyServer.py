@@ -184,7 +184,7 @@ class ProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         return absolute_url
 
     def do_POST(self):
-        print 'do_GET()'
+        print 'do_POST()'
         #netloc is a url like 'www.codepongo.com:80'
         (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(self.path, 'http')
         if not netloc:
@@ -209,6 +209,7 @@ class ProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         del self.headers['Proxy-Connection']
 
         for key_val in self.headers.items():
+            print key_val
             s.send("%s: %s\r\n" % key_val)
         s.send("\r\n")
         self.turn_to(s)
