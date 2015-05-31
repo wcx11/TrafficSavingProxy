@@ -3,6 +3,8 @@ __author__ = 'wcx'
 import sys
 import getopt
 import urllib2
+import socket
+import httplib
 
 
 def http_with_proxy(proxy, original):
