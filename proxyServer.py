@@ -13,8 +13,13 @@ import sys
 import os
 import urllib2
 from bs4 import BeautifulSoup
+from bs4 import UnicodeDammit
 import re
 from cookielib import CookieJar
+from PIL import Image
+import StringIO
+import cStringIO
+import gzip
 
 
 class ThreadingHTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
@@ -86,11 +91,6 @@ class ProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             self.send_GET_response(e, host, port, path)
         except httplib.BadStatusLine, e:
             pass
-            #print e.code
-            #print e.msg
-            #print e.headers
-            #response = e
-            #self.send_GET_response(e, host, port, path)
         finally:
             self.connection.close()
             print 'a client is disconnected'
@@ -108,7 +108,7 @@ class ProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         req = urllib2.Request(url=url, headers=headers)
         req.get_method = lambda: self.command
         try:
-            response = urllib2.urlopen(req, timeout=10)
+            response = urllib2.urlopen(req, timeout=30)
             return response
         except urllib2.HTTPError, e:
             print e.code
@@ -124,23 +124,28 @@ class ProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             if re.search(r'chunked|length|Length|encoding', header):
                 continue
             self.connection.send(header)
-        self.connection.send('\r\n')
+        if response.code != 200:
+            self.connection.send('\r\n')
+            self.connection.send(f)
+            return
 
         if re.search(r'text', response.info().type):
 
-            html_soup = BeautifulSoup(f)
-
+            html_soup = BeautifulSoup(UnicodeDammit(f, ["utf-8", "windows-1252", "latin-1", "iso-8859-1"]).unicode_markup)
             #deal with javascript file
             scripts = html_soup.find_all('script', attrs={'src': re.compile(".*")})
             for script in scripts:
                 script_url = self.get_absolute_url(script['src'], host, port, path)
                 script_response = self.client_GET(script_url, self.headers.dict)
+                print script_response.getcode()
                 if script_response.getcode() != 200:
                     continue
                 script_content = script_response.read()
                 del script['src']
-                script.append(script_content)
+                #print script_content
+                script.append(UnicodeDammit(script_content, ["utf-8", "windows-1252", "latin-1", "iso-8859-1"]).unicode_markup)
             #deal with css
+
             stylesheets = html_soup.find_all('link', attrs={'rel': 'stylesheet'})
             for stylesheet in stylesheets:
                 stylesheet_url = self.get_absolute_url(stylesheet['href'], host, port, path)
@@ -149,20 +154,50 @@ class ProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                     continue
                 stylesheet_content = stylesheet_response.read()
                 new_tag = html_soup.new_tag('style')
-                new_tag.append(stylesheet_content)
+                new_tag.append(UnicodeDammit(stylesheet_content, ["utf-8", "windows-1252", "latin-1", "iso-8859-1"]).unicode_markup)
                 stylesheet.replace_with(new_tag)
 
-            print str(html_soup)
-            self.connection.send(str(html_soup))
-            #html = "<html><head></head><body><img src='http://www.baidu.com/img/bd_logo1.png'/></body></html>"
-            #self.connection.send(html)
-        else:
+            #print str(html_soup)
+            f_in = str(html_soup)
+            f_out = f_in
+            buf = cStringIO.StringIO()
+            try:
+                gzipf = gzip.GzipFile(fileobj=buf, mode='wt', compresslevel=9)
+                gzipf.write(f_in)
+                gzipf.close()
+                f_out = buf.getvalue()
+                buf.close()
+                print f_in
+                print "compressed"
+                print f_out
+                self.connection.send('Content-Encoding: gzip\r\n')
+            except Exception, e:
+                print e
+                pass
+            finally:
 
+                self.connection.send('\r\n')
+                self.connection.send(f_out)
+
+        #deal with image, convert into webp
+        elif re.search(r'png|jpeg', response.info().type):
+            try:
+                image = Image.open(StringIO.StringIO(f)).convert('RGB')
+                output = StringIO.StringIO()
+                image.save(output, format="WEBP")
+                contents = output.getvalue()
+                print response.info().type
+                self.connection.send('\r\n')
+                self.connection.send(contents)
+                output.close()
+            except:
+                self.connection.send('\r\n')
+                self.connection.send(f)
+        else:
             print response.info().type
+            self.connection.send('\r\n')
             self.connection.send(f)
 
-        #print f
-        #self.connection.send(f)
 
     def get_absolute_url(self, url, host, port, path):
         absolute_url = url
@@ -275,4 +310,6 @@ def serving(port=8000, protocol="HTTP/1.0", debug=False):
     httpd.serve_forever()
 
 if __name__ == '__main__':
+    reload(sys)
+    sys.setdefaultencoding('utf8')
     serving(port=8000, debug=True)

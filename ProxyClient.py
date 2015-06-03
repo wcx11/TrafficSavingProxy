@@ -13,6 +13,9 @@ def http_with_proxy(proxy, original):
     proxy = urllib2.ProxyHandler({'http':proxy})
     opener = urllib2.build_opener(httpHandler, httpsHandler, proxy)
     urllib2.install_opener(opener)
+    req = urllib2.Request(original)
+    req.add_header('User-Agent',"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/43.0.2357.81 Safari/537.36")
+
     response = urllib2.urlopen(original)
     return response.read()
 
